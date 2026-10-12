@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>BudgetPlan — Make your money last</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0C4B3E"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Montserrat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F7F4E9;--card:#fff;--fg:#242820;--pri:#0C4B3E;--onpri:#F7F4E9;--sage:#C6D9BD;--coral:#E8B7A5;--mut:#5f6455;--bd:#e3dfcf}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#082e26;--card:#0C4B3E;--fg:#F7F4E9;--pri:#C6D9BD;--onpri:#0C4B3E;--mut:#b9c7b4;--bd:#1b6354}}
+:root[data-theme=dark]{--bg:#082e26;--card:#0C4B3E;--fg:#F7F4E9;--pri:#C6D9BD;--onpri:#0C4B3E;--mut:#b9c7b4;--bd:#1b6354}
+*{box-sizing:border-box}body{margin:0 auto;background:var(--bg);color:var(--fg);font:15px Inter,system-ui,sans-serif;max-width:640px;padding:12px 14px calc(84px + env(safe-area-inset-bottom))}
+h1,h2,h3,.logo{font-family:Montserrat,system-ui,sans-serif;margin:0}.logo{display:flex;align-items:center;gap:8px;font-weight:500;font-size:20px}
+.mark{width:32px;height:32px;flex:none}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin:10px 0}.big{font:700 28px Montserrat}.mut{color:var(--mut);font-size:13px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd)}.row:last-child{border:0}
+.bar{height:10px;border-radius:6px;background:var(--bd);overflow:hidden;margin:6px 0}.bar i{display:block;height:100%;background:var(--pri)}.bar.warn i{background:var(--coral)}
+input,select,button{font:inherit;padding:10px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--fg);width:100%;margin:4px 0;min-height:44px}
+button{background:var(--pri);color:var(--onpri);border:0;font-weight:600;cursor:pointer}button:disabled{opacity:.5}button.sec{background:transparent;color:var(--fg);border:1px solid var(--bd)}
+button.sm{width:auto;min-height:32px;padding:4px 10px;font-size:13px}.link{background:none;color:var(--fg);text-decoration:underline;border:0;min-height:32px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom)}
+nav button{background:none;color:var(--mut);border-radius:0;margin:0;font-size:12px}nav button.on{color:var(--fg);box-shadow:inset 0 3px var(--pri)}
+.pill{padding:2px 8px;border-radius:99px;font-size:12px;background:var(--coral);color:#242820}
+#msg{position:fixed;top:8px;left:50%;transform:translateX(-50%);padding:8px 14px;border-radius:10px;background:var(--fg);color:var(--bg);display:none;z-index:9}label{font-size:13px;color:var(--mut)}
+</style></head><body>
+<div id="msg" role="status"></div><div id="app"><p class="mut">Loading…</p></div>
+<script>
+const CATS=["Hostel & accommodation","Food & meals","Groceries","Education & books","Transport & travel","Mobile & internet","Personal care","Shopping","Entertainment","Restaurants & cafés","Healthcare","Savings","Fees & tuition","Transfers","Other"];
+const CUR=["INR","USD","EUR","GBP","AUD","CAD","SGD","AED"];
+const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let user,P,TX=[],BU=[],GO=[],tab="home",editId=null,q="",view="login",busy=false;
+const fmt=(n,c)=>{try{return new Intl.NumberFormat(undefined,{style:"currency",currency:c||P.preferred_currency}).format(n)}catch(e){return(+n).toFixed(2)}};
+const toast=t=>{const m=$("#msg");m.textContent=t;m.style.display="block";setTimeout(()=>m.style.display="none",2600)};
+const thisM=()=>new Date().toISOString().slice(0,7),prevM=m=>{const[y,o]=m.split("-").map(Number),d=new Date(y,o-2,1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")};
+async function guard(fn,ok){if(busy)return;busy=true;try{const{error}=await fn();if(error)throw error;if(ok)toast(ok);return true}catch(e){toast("Error: "+(e.message||"failed"));return false}finally{busy=false}}
+const KEY="budgetplan.v1";let D;
+function persist(){try{localStorage.setItem(KEY,JSON.stringify(D));return true}catch(e){return false}}
+function run(q,t){try{const rows=D[t];const m=r=>q.f.every(([k,v])=>r[k]===v);let data=null;
+  if(q.op==="insert"){const r={id:crypto.randomUUID(),created_at:new Date().toISOString(),saved_amount:0,...q.vals};rows.push(r)}
+  else if(q.op==="update"){rows.filter(m).forEach(r=>Object.assign(r,q.vals))}
+  else if(q.op==="delete"){D[t]=rows.filter(r=>!m(r))}
+  else if(q.op==="upsert"){const ex=rows.find(r=>(r.category_name||null)===(q.vals.category_name||null));ex?Object.assign(ex,q.vals):rows.push({id:crypto.randomUUID(),...q.vals})}
+  else{data=rows.filter(m).slice();if(q.o)data.sort((x,y)=>(x[q.o[0]]>y[q.o[0]]?1:-1)*q.o[1]);if(q.one)data=data[0]}
+  if(q.op!=="select"&&!persist())throw new Error("Storage is full or blocked in this browser");return{data,error:null}}catch(e){return{data:null,error:e}}}
+const sb={from:t=>{const q={op:"select",f:[],o:null,one:false};
+  q.select=()=>q;q.insert=v=>(q.op="insert",q.vals=v,q);q.update=v=>(q.op="update",q.vals=v,q);q.delete=()=>(q.op="delete",q);q.upsert=v=>(q.op="upsert",q.vals=v,q);
+  q.eq=(k,v)=>(q.f.push([k,v]),q);q.order=(k,o)=>(q.o=[k,o&&o.ascending===false?-1:1],q);q.single=()=>(q.one=true,q);
+  q.then=(a,b)=>Promise.resolve(run(q,t)).then(a,b);return q}};
+function init(){try{D=JSON.parse(localStorage.getItem(KEY))}catch(e){}
+  if(!D||!D.profiles)D={profiles:[{id:"local",display_name:null,country:null,preferred_currency:"INR",monthly_allowance:0}],transactions:[],budgets:[],savings_goals:[]};
+  user={id:"local"};if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});load()}
+async function load(){const[p,t,b,g]=await Promise.all([sb.from("profiles").select().eq("id","local").single(),sb.from("transactions").select().order("transaction_date",{ascending:false}),sb.from("budgets").select(),sb.from("savings_goals").select().order("created_at")]);
+  P=p.data;TX=t.data;BU=b.data;GO=g.data;view="app";render()}
+function stats(m){const tx=TX.filter(t=>t.transaction_date.startsWith(m)),ex=tx.filter(t=>t.transaction_type==="expense"),by={};ex.forEach(t=>by[t.category_name]=(by[t.category_name]||0)+ +t.amount);
+  return{tx,by,exp:ex.filter(t=>t.category_name!=="Savings").reduce((a,t)=>a+ +t.amount,0),inc:tx.filter(t=>t.transaction_type==="income").reduce((a,t)=>a+ +t.amount,0)}}
+function render(){const a=$("#app");
+  if(view==="app"&&P&&!P.onboarded&&!P.display_name&&+P.monthly_allowance===0&&!window._skip)return a.innerHTML=onboard();
+  if(view==="app")return a.innerHTML=`<div class="top"><div class="logo"><svg class="mark" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#0C4B3E"/><text x="190" y="370" font-family="Montserrat,Arial" font-weight="500" font-size="300" fill="#F7F4E9" text-anchor="middle">B</text><path d="M330 150c60 0 90 40 80 100-60 8-100-20-100-70 0-14 8-30 20-30z" fill="#C6D9BD"/></svg>BudgetPlan</div><span class="pill" style="background:var(--sage)">Beta</span></div><p class="mut" style="margin:-6px 0 8px">Make your money last.</p>${({home,tx:txPage,budget:budPage,goals:goalPage,more}[tab])()}
+  <nav>${[["home","Home"],["tx","Spend"],["budget","Budgets"],["goals","Goals"],["more","More"]].map(([k,l])=>`<button class="${tab===k?"on":""}" onclick="tab='${k}';editId=null;render();scrollTo(0,0)">${l}</button>`).join("")}</nav>`;
+}
+function onboard(){return`<div class="logo"><svg class="mark" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#0C4B3E"/><text x="190" y="370" font-family="Montserrat,Arial" font-weight="500" font-size="300" fill="#F7F4E9" text-anchor="middle">B</text><path d="M330 150c60 0 90 40 80 100-60 8-100-20-100-70 0-14 8-30 20-30z" fill="#C6D9BD"/></svg>BudgetPlan</div><p class="mut">Make your money last.</p><div class="card"><h3>Quick setup</h3><label for="o_n">Nickname (optional)</label><input id="o_n"><label for="o_co">Country (optional)</label><input id="o_co"><label for="o_c">Currency</label><select id="o_c">${CUR.map(c=>`<option>${c}</option>`)}</select><label for="o_a">Monthly allowance / income</label><input id="o_a" type="number" min="0" step="0.01" inputmode="decimal"><button onclick="onb()">Start tracking</button><button class="link" onclick="window._skip=1;render()">Skip for now</button></div>`}
+async function onb(){const a=+$("#o_a").value||0,u={display_name:$("#o_n").value.trim()||null,country:$("#o_co").value.trim()||null,preferred_currency:$("#o_c").value,monthly_allowance:a};
+  if(await guard(()=>sb.from("profiles").update(u).eq("id",user.id),"Welcome!")){Object.assign(P,u);if(a>0)await sb.from("budgets").upsert({amount:a,currency:u.preferred_currency,category_name:null},{onConflict:"user_id,category_name"});load()}}
+function home(){const m=thisM(),s=stats(m),allow=+P.monthly_allowance,total=allow+s.inc,rem=total-s.exp,pct=total?Math.min(100,s.exp/total*100):0,pv=stats(prevM(m)).exp,cats=Object.entries(s.by).sort((x,y)=>y[1]-x[1]),mx=cats[0]?.[1]||1;
+  const warn=BU.filter(b=>b.category_name&&(s.by[b.category_name]||0)>=b.amount*.8).map(b=>`${esc(b.category_name)}: ${fmt(s.by[b.category_name])} of ${fmt(b.amount)}`);
+  return`<div class="card"><div class="mut">Remaining this month (budget estimate, not your bank balance)</div><div class="big">${fmt(rem)}</div><div class="bar ${pct>90?"warn":""}"><i style="width:${pct}%"></i></div><div class="mut">${fmt(s.exp)} spent of ${fmt(total)} (${pct.toFixed(0)}% used)</div></div>
+  <button onclick="tab='tx';render()">+ Add expense</button>${warn.length?`<div class="card"><span class="pill">Heads up</span><p class="mut">Near or over limit — ${warn.join("; ")}</p></div>`:""}
+  <div class="card"><h3>By category</h3>${cats.map(([k,v])=>`<div class="row" style="border:0;padding:2px 0"><span>${esc(k)}</span><b>${fmt(v)}</b></div><div class="bar"><i style="width:${v/mx*100}%"></i></div>`).join("")||'<p class="mut">No expenses yet this month. Add your first one.</p>'}</div>
+  <div class="card"><h3>Insights</h3><p class="mut">${cats[0]?`Top category: ${esc(cats[0][0])} (${fmt(cats[0][1])}). `:"Add expenses to see insights. "}${pv?`Last month: ${fmt(pv)}; this month is ${s.exp>pv?"higher":"not higher"} so far. `:""}Based on ${s.tx.length} transaction(s) you recorded this month.</p></div>
+  <div class="card"><h3>Recent</h3>${TX.slice(0,5).map(txRow).join("")||'<p class="mut">Nothing yet.</p>'}</div>`}
+const txRow=t=>`<div class="row"><div><b>${esc(t.category_name)}</b><div class="mut">${esc(t.transaction_date)}${t.description?" · "+esc(t.description):""}</div></div><div style="text-align:right"><b>${t.transaction_type==="income"?"+":"−"}${fmt(t.amount,t.currency)}</b><br><button class="sm sec" onclick="editId='${t.id}';tab='tx';render();scrollTo(0,0)">Edit</button> <button class="sm sec" onclick="delTx('${t.id}')">Del</button></div></div>`;
+function txPage(){const e=TX.find(t=>t.id===editId)||{transaction_type:"expense",category_name:CATS[1],transaction_date:new Date().toISOString().slice(0,10),payment_method:"UPI/Cash",amount:"",description:""};
+  const list=TX.filter(t=>!q||(t.category_name+(t.description||"")).toLowerCase().includes(q.toLowerCase()));
+  return`<div class="card"><h3>${editId?"Edit":"Add"} transaction</h3><label for="t_t">Type</label><select id="t_t"><option value="expense" ${e.transaction_type==="expense"?"selected":""}>Expense</option><option value="income" ${e.transaction_type==="income"?"selected":""}>Extra income</option></select>
+  <label for="t_a">Amount (${P.preferred_currency})</label><input id="t_a" type="number" min="0.01" step="0.01" inputmode="decimal" value="${e.amount}"><label for="t_c">Category</label><select id="t_c">${CATS.map(c=>`<option ${c===e.category_name?"selected":""}>${esc(c)}</option>`)}</select>
+  <label for="t_d">Date</label><input id="t_d" type="date" value="${e.transaction_date}"><label for="t_n">Note</label><input id="t_n" maxlength="200" value="${esc(e.description)}"><label for="t_p">Payment method</label><select id="t_p">${["UPI/Cash","Card","Bank transfer","Other"].map(p=>`<option ${p===e.payment_method?"selected":""}>${p}</option>`)}</select>
+  <button onclick="saveTx()">${editId?"Update":"Save"}</button>${editId?'<button class="sec" onclick="editId=null;render()">Cancel</button>':""}</div>
+  <label for="srch">Search</label><input id="srch" value="${esc(q)}" oninput="q=this.value;clearTimeout(window._t);window._t=setTimeout(()=>{render();const i=$('#srch');i.focus();i.setSelectionRange(99,99)},300)"><div class="card">${list.map(txRow).join("")||'<p class="mut">No transactions found.</p>'}</div>`}
+async function saveTx(){const amount=+$("#t_a").value,d=$("#t_d").value;if(!(amount>0))return toast("Enter an amount above 0");if(!d)return toast("Pick a date");
+  const row={transaction_type:$("#t_t").value,category_name:$("#t_c").value,amount,transaction_date:d,description:$("#t_n").value.trim()||null,payment_method:$("#t_p").value};
+  const ok=await guard(()=>editId?sb.from("transactions").update(row).eq("id",editId):sb.from("transactions").insert({...row,currency:P.preferred_currency}),editId?"Updated":"Saved");if(ok){editId=null;await load()}}
+async function delTx(id){if(confirm("Delete this transaction?")&&await guard(()=>sb.from("transactions").delete().eq("id",id),"Deleted"))load()}
+function budPage(){const s=stats(thisM()),bar=(l,u)=>{const p=u/l*100;return`<div class="bar ${p>=80?"warn":""}"><i style="width:${Math.min(100,p)}%"></i></div><div class="mut">${fmt(u)} of ${fmt(l)} · ${p>=100?"Over by "+fmt(u-l):p>=80?"Approaching limit":fmt(l-u)+" left"}</div>`},tot=BU.find(b=>!b.category_name);
+  return`<div class="card"><h3>Monthly limit</h3>${tot?bar(+tot.amount,s.exp):'<p class="mut">No monthly limit yet.</p>'}<input id="b_t" type="number" min="1" step="0.01" aria-label="Monthly limit" value="${tot?tot.amount:""}"><button onclick="setB(null,$('#b_t').value)">Save limit</button></div>
+  <div class="card"><h3>Category limits</h3>${BU.filter(b=>b.category_name).map(b=>`<div style="margin:8px 0"><b>${esc(b.category_name)}</b>${bar(+b.amount,s.by[b.category_name]||0)}<button class="sm sec" onclick="delB('${b.id}')">Remove</button></div>`).join("")||'<p class="mut">None yet.</p>'}
+  <select id="b_c" aria-label="Category">${CATS.map(c=>`<option>${esc(c)}</option>`)}</select><input id="b_a" type="number" min="1" step="0.01" placeholder="Limit amount"><button onclick="setB($('#b_c').value,$('#b_a').value)">Set limit</button></div>`}
+async function setB(cat,v){v=+v;if(!(v>0))return toast("Enter an amount above 0");const ex=BU.find(b=>(b.category_name||null)===cat);
+  if(await guard(()=>ex?sb.from("budgets").update({amount:v}).eq("id",ex.id):sb.from("budgets").insert({category_name:cat,amount:v,currency:P.preferred_currency}),"Budget saved"))load()}
+async function delB(id){if(confirm("Remove this limit?")&&await guard(()=>sb.from("budgets").delete().eq("id",id),"Removed"))load()}
+function goalPage(){return`<div class="card"><h3>New goal</h3><input id="g_t" aria-label="Title" maxlength="80" placeholder="e.g. Laptop"><input id="g_a" aria-label="Target" type="number" min="1" step="0.01" placeholder="Target amount"><input id="g_d" aria-label="Target date" type="date"><button onclick="addG()">Add goal</button><p class="mut">Goal savings are tracked separately and never counted as spending.</p></div>
+  ${GO.map(g=>{const p=Math.min(100,g.saved_amount/g.target_amount*100);return`<div class="card"><b>${esc(g.title)}</b>${g.target_date?` <span class="mut">by ${esc(g.target_date)}</span>`:""}<div class="bar"><i style="width:${p}%"></i></div><div class="mut">${fmt(g.saved_amount,g.currency)} of ${fmt(g.target_amount,g.currency)} (${p.toFixed(0)}%)</div><input id="gs${g.id}" type="number" min="0.01" step="0.01" aria-label="Amount to add" placeholder="Add saved amount"><button class="sm" onclick="addS('${g.id}')">Add</button> <button class="sm sec" onclick="delG('${g.id}')">Delete</button></div>`}).join("")||'<p class="mut">No goals yet.</p>'}`}
+async function addG(){const t=$("#g_t").value.trim(),a=+$("#g_a").value;if(!t||!(a>0))return toast("Add a title and target");if(await guard(()=>sb.from("savings_goals").insert({title:t,target_amount:a,currency:P.preferred_currency,target_date:$("#g_d").value||null}),"Goal added"))load()}
+async function addS(id){const v=+$("#gs"+id).value;if(!(v>0))return toast("Enter an amount");const g=GO.find(x=>x.id===id);if(await guard(()=>sb.from("savings_goals").update({saved_amount:+g.saved_amount+v}).eq("id",id),"Updated"))load()}
+async function delG(id){if(confirm("Delete this goal?")&&await guard(()=>sb.from("savings_goals").delete().eq("id",id),"Deleted"))load()}
+function more(){return`<div class="card"><h3>Settings</h3><label for="m_c">Currency for new entries (past entries keep their original currency)</label><select id="m_c" onchange="upd({preferred_currency:this.value})">${CUR.map(c=>`<option ${c===P.preferred_currency?"selected":""}>${c}</option>`)}</select>
+  <label for="m_a">Monthly allowance</label><input id="m_a" type="number" min="0" step="0.01" value="${P.monthly_allowance}"><button onclick="upd({monthly_allowance:+$('#m_a').value||0})">Update allowance</button>
+  <button class="sec" onclick="const r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'">Toggle light / dark</button></div>
+  <div class="card"><h3>Your data</h3><p class="mut">Everything is stored only on this device, in this browser. Clearing browser data or switching devices will lose it, so export a backup regularly.</p><button class="sec" onclick="expCsv()">Export CSV backup</button><button class="sec" onclick="delAcc()">Delete all my data</button><p class="mut">Beta feedback: add your feedback link here.</p></div>`}
+async function upd(u){if(await guard(()=>sb.from("profiles").update(u).eq("id",user.id),"Saved")){Object.assign(P,u);render()}}
+function expCsv(){const csv="date,type,category,amount,currency,payment,note\n"+TX.map(t=>[t.transaction_date,t.transaction_type,t.category_name,t.amount,t.currency,t.payment_method||"",'"'+(t.description||"").replace(/"/g,'""')+'"'].join(",")).join("\n");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="budgetplan.csv";a.click()}
+function delAcc(){if(!confirm("Permanently delete ALL your BudgetPlan data on this device?"))return;localStorage.removeItem(KEY);window._skip=0;init();toast("All data deleted")}
+init();
+</script></body></html>
